@@ -306,23 +306,6 @@ fn generate_impl(
 		}
 	});
 	
-	// Generate field iteration code
-	let normal_iter = normal_fields.iter().map(|field| {
-		let ident_str = &field.ident;
-		let ident = format_ident!("{}", field.ident);
-		quote! {
-			f(#ident_str, &self.#ident);
-		}
-	});
-	
-	let all_iter = all_fields.iter().map(|field| {
-		let ident_str = &field.ident;
-		let ident = format_ident!("{}", field.ident);
-		quote! {
-			f(#ident_str, &self.#ident);
-		}
-	});
-	
 	quote! {
 		#repr_attr
 		
@@ -333,27 +316,17 @@ fn generate_impl(
 			}
 			
 			/// Get field info (excluding padding)
-			fn field_info() -> Vec<::ffi_struct::FieldInfo> {
+			fn iter_members() -> std::vec::IntoIter<::ffi_struct::FieldInfo> {
 				vec![
 					#( #normal_field_info ),*
-				]
+				].into_iter()
 			}
 			
 			/// Get all field info (including padding)
-			fn all_field_info() -> Vec<::ffi_struct::FieldInfo> {
+			fn iter_all_members() -> std::vec::IntoIter<::ffi_struct::FieldInfo> {
 				vec![
 					#( #all_field_info ),*
-				]
-			}
-			
-			/// Iterate fields (excluding padding)
-			fn iterate_fields(&self, mut f: impl FnMut(&str, &dyn std::any::Any)) {
-				#( #normal_iter )*
-			}
-			
-			/// Iterate all fields (including padding)
-			fn iterate_all_fields(&self, mut f: impl FnMut(&str, &dyn std::any::Any)) {
-				#( #all_iter )*
+				].into_iter()
 			}
 		}
 	}
