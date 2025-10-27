@@ -23,21 +23,21 @@ use syn::{
 };
 
 /// Alignment configuration for a field
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 struct FieldAlignment {
 	align: Option<usize>,
 	packed: bool,
 }
 
 /// Alignment configuration for a struct
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 struct StructAlignment {
 	align: Option<usize>,
 	packed: bool,
 }
 
 /// Field information
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct FieldInfo {
 	ident: String,
 	ty: Type,
