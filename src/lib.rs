@@ -45,7 +45,7 @@ struct FieldInfo {
 	is_padding: bool,
 }
 
-#[proc_macro_derive(FFIStruct, attributes(ffi_struct, align, repr))]
+#[proc_macro_derive(FFIStruct, attributes(align, repr))]
 pub fn derive_ffi_struct(input: TokenStream) -> TokenStream {
 	let input = parse_macro_input!(input as DeriveInput);
 	
