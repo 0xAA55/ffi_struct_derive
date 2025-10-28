@@ -428,16 +428,27 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 	Ok(output)
 }
 
-// Check if type contains generic parameters
-fn is_generic_type(ty: &Type) -> bool {
+// Get size from struct-level #[size_of_type] if available
+fn get_size_from_type(ty: &Type, size_of_types: &HashMap<String, usize>) -> Option<usize> {
 	match ty {
-		Type::Path(type_path) => type_path.path.segments.iter().any(|seg| !seg.arguments.is_empty()),
-		_ => false,
+		Type::Path(type_path) => {
+			if let Some(ident) = type_path.path.get_ident() {
+				let type_name = ident.to_string();
+				size_of_types.get(&type_name).copied()
+			} else {
+				None
+			}
+		},
+		_ => None,
 	}
 }
 
 // Calculate size of complex types at compile time
-fn calculate_type_size(ty: &Type, size_of_types: &HashMap<String, usize>) -> Result<usize, SynError> {
+fn calculate_type_size(
+	ty: &Type,
+	size_of_types: &HashMap<String, usize>,
+	align_of_types: &HashMap<String, usize>
+) -> Result<usize, SynError> {
 	match ty {
 		// Basic types
 		Type::Path(type_path) => {
@@ -467,7 +478,7 @@ fn calculate_type_size(ty: &Type, size_of_types: &HashMap<String, usize>) -> Res
 					"usize" => Ok(size_of::<usize>()),
 					_ => Err(SynError::new(
 						ident.span(),
-						format!("Cannot determine size of type '{}'. Please use #[size] attribute", type_name)
+						format!("Cannot determine size of type '{}'. Please use #[size] attribute or add it to #[size_of_type]", type_name)
 					)),
 				}
 			} else {
@@ -480,7 +491,7 @@ fn calculate_type_size(ty: &Type, size_of_types: &HashMap<String, usize>) -> Res
 
 		// Arrays: [T; N]
 		Type::Array(array) => {
-			let elem_size = calculate_type_size(&array.elem, size_of_types)?;
+			let elem_size = calculate_type_size(&array.elem, size_of_types, align_of_types)?;
 			if let Expr::Lit(lit) = &array.len {
 				if let Lit::Int(int_lit) = &lit.lit {
 					let len: usize = int_lit.base10_parse()?;
@@ -496,8 +507,8 @@ fn calculate_type_size(ty: &Type, size_of_types: &HashMap<String, usize>) -> Res
 			let mut max_align = 1;
 
 			for elem in &tuple.elems {
-				let elem_size = calculate_type_size(elem, size_of_types)?;
-				let elem_align = get_type_alignment(elem)?;
+				let elem_size = calculate_type_size(elem, size_of_types, align_of_types)?;
+				let elem_align = get_type_alignment(elem, align_of_types)?;
 
 				// Align current offset to element's alignment
 				let padding = if total_size % elem_align == 0 {
@@ -529,11 +540,16 @@ fn calculate_type_size(ty: &Type, size_of_types: &HashMap<String, usize>) -> Res
 }
 
 // Get alignment for type using align_of
-fn get_type_alignment(ty: &Type) -> Result<usize, SynError> {
+fn get_type_alignment(ty: &Type, align_of_types: &HashMap<String, usize>) -> Result<usize, SynError> {
 	match ty {
 		Type::Path(type_path) => {
 			if let Some(ident) = type_path.path.get_ident() {
 				let type_name = ident.to_string();
+
+				// Check if alignment is provided via #[align_of_type]
+				if let Some(align) = align_of_types.get(&type_name) {
+					return Ok(*align);
+				}
 
 				// Handle basic types
 				match type_name.as_str() {
