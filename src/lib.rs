@@ -333,12 +333,14 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 				quote! { #ty }
 			};
 
-			// Get the type name string
+			// Get type name string
 			let type_name_str = if is_pad {
 				format!("[u8; {}]", size)
 			} else {
-				// Convert type name to string
-				ty.to_token_stream().to_string()
+				// Convert type to string
+				let ty_str = ty.to_token_stream().to_string();
+				// Simplify type name
+				ty_str.replace(" ", "")
 			};
 
 			field_computations.push(quote! {
@@ -377,7 +379,7 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 						self.#name.type_id()
 					};
 
-					// 添加类型名称
+					// Add type name
 					let type_name = #type_name_str;
 
 					(stringify!(#name), MemberInfo { size, type_id, offset, type_name })
