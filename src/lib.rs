@@ -44,9 +44,6 @@ pub fn ffi_struct(_attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
-	// Remove macro-specific attributes from struct level
-	input.attrs.retain(|attr| !attr.path().is_ident("size_of_type"));
-
 	// Verify input is a struct
 	let data = match &mut input.data {
 		Data::Struct(s) => s,
@@ -62,7 +59,10 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 	let new_ident_str = ident_str.trim_end_matches("Rust");
 	let new_ident = Ident::new(new_ident_str, ident.span());
 
-	// Parse #[size_of_type] attributes on the struct
+	// Extract generics and where clause from the original struct
+	let generics = &input.generics;
+	let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
 	let mut size_of_types = HashMap::new();
 	for attr in &input.attrs {
 		if attr.path().is_ident("size_of_type") {
