@@ -388,8 +388,8 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 		}
 
 		quote! {
-			impl FFIStruct for #new_ident {
-				type RustType = #ident;
+			impl #impl_generics FFIStruct for #new_ident #ty_generics #where_clause {
+				type RustType = #ident #ty_generics;
 
 				fn iter_members(&self) -> std::vec::IntoIter<(&'static str, MemberInfo)> {
 					let mut members = Vec::new();
