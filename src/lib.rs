@@ -185,9 +185,15 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 		// Default alignment if not provided
 		let align_attr = align_attr.unwrap_or(1);
 
-		// Calculate size for non-generic fields if not provided
-		let size_attr = if !is_generic && size_attr.is_none() {
-			Some(calculate_type_size(ty, &size_of_types)?)
+		// Calculate size if not provided
+		let size_attr = if size_attr.is_none() {
+			// Try to get size from struct-level #[size_of_type]
+			if let Some(size) = get_size_from_type(ty, &size_of_types) {
+				Some(size)
+			} else {
+				// Fall back to calculating size
+				calculate_type_size(ty, &size_of_types, &align_of_types).ok()
+			}
 		} else {
 			size_attr
 		};
