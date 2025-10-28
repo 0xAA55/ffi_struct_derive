@@ -21,14 +21,12 @@ use syn::{
 	Error as SynError,
 	Expr,
 	Fields,
-	Ident,
 	Lit,
 	Meta,
 	MetaNameValue,
 	Token,
 	Type,
 	parse_macro_input,
-	parse_quote,
 	punctuated::Punctuated,
 	spanned::Spanned,
 };
@@ -49,15 +47,6 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 		Data::Struct(s) => s,
 		_ => return Err(SynError::new(input.span(), "ffi_struct can only be applied to structs")),
 	};
-
-	// Validate struct name ends with Rust
-	let ident = &input.ident;
-	let ident_str = ident.to_string();
-	if !ident_str.ends_with("Rust") {
-		return Err(SynError::new(ident.span(), "Struct name must end with 'Rust'"));
-	}
-	let new_ident_str = ident_str.trim_end_matches("Rust");
-	let new_ident = Ident::new(new_ident_str, ident.span());
 
 	// Extract generics and where clause from the original struct
 	let generics = &input.generics;
@@ -106,37 +95,11 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 	// Remove macro-specific attributes from struct level
 	input.attrs.retain(|attr| !attr.path().is_ident("size_of_type") && !attr.path().is_ident("align_of_type"));
 
-	// Preserve all non-macro attributes from the original struct, but remove #[derive(Default)]
+	// Preserve all non-macro attributes from the original struct
 	let mut preserved_attrs = Vec::new();
 	for attr in &input.attrs {
-		if !attr.path().is_ident("size_of_type") && !attr.path().is_ident("align_of_type") && !attr.path().is_ident("ffi_struct") {
-			if let Meta::List(list) = &attr.meta {
-				if list.path.is_ident("derive") {
-					// Parse the derive list
-					if let Ok(derives) = list.parse_args_with(Punctuated::<syn::Path, Token![,]>::parse_terminated) {
-						// Create a new list without Default
-						let mut new_derives: Punctuated<syn::Path, Token![,]> = Punctuated::new();
-						for path in derives {
-							if !path.is_ident("Default") {
-								new_derives.push(path);
-							}
-						}
-
-						// If there are still derives left, add them back
-						if !new_derives.is_empty() {
-							preserved_attrs.push(parse_quote! {
-								#[derive(#new_derives)]
-							});
-						}
-					} else {
-						preserved_attrs.push(attr.clone());
-					}
-				} else {
-					preserved_attrs.push(attr.clone());
-				}
-			} else {
-				preserved_attrs.push(attr.clone());
-			}
+		if !attr.path().is_ident("ffi_struct") {
+			preserved_attrs.push(attr.clone());
 		}
 	}
 
@@ -149,7 +112,7 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 	// Parse field attributes and remove macro-specific ones
 	let mut field_infos = Vec::new();
 	for field in fields.iter_mut() {
-		let name = field.ident.as_ref().ok_or_else(|| syn::Error::new(field.span(), "Field must have a name"))?;
+		let name = field.ident.as_ref().ok_or_else(|| SynError::new(field.span(), "Field must have a name"))?;
 		let ty = &field.ty;
 
 		// Parse attributes and remove macro-specific ones
@@ -199,7 +162,7 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 
 		// If still no size attribute, return error
 		if size_attr.is_none() {
-			return Err(syn::Error::new(field.span(), "Field must have #[size(Xxx)] attribute or be defined in #[size_of_type]"));
+			return Err(SynError::new(field.span(), "Field must have #[size(Xxx)] attribute or be defined in #[size_of_type]"));
 		}
 
 		field_infos.push((name.clone(), ty.clone(), align_attr, size_attr.unwrap()));
@@ -237,86 +200,14 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 
 	// Get visibility of original struct
 	let vis = &input.vis;
+	let ident = &input.ident;
 
-	// Generate new struct definition with generics
-	let new_struct = quote! {
+	// Generate modified struct definition
+	let modified_struct = quote! {
 		#(#preserved_attrs)*
 		#[repr(C)]
-		#vis struct #new_ident #ty_generics #where_clause {
+		#vis struct #ident #ty_generics #where_clause {
 			#(#new_fields,)*
-		}
-	};
-
-	// Generate From/Into implementations with generics
-	let from_impl = {
-		let mut assignments_to_new = Vec::new();
-		let mut assignments_to_old = Vec::new();
-
-		for (name, _, _, _) in &field_infos {
-			assignments_to_new.push(quote! {
-				new.#name = value.#name;
-			});
-			assignments_to_old.push(quote! {
-				old.#name = value.#name;
-			});
-		}
-
-		quote! {
-			impl #impl_generics #ident #ty_generics #where_clause {
-				pub fn into_ffi(self) -> #new_ident #ty_generics {
-					self.into()
-				}
-			}
-
-			impl #impl_generics #new_ident #ty_generics #where_clause {
-				pub fn into_rust(self) -> #ident #ty_generics {
-					self.into()
-				}
-			}
-
-			impl #impl_generics From<#ident #ty_generics> for #new_ident #ty_generics #where_clause {
-				fn from(value: #ident #ty_generics) -> Self {
-					let mut new = #new_ident::default();
-					#(#assignments_to_new)*
-					new
-				}
-			}
-
-			impl #impl_generics From<#new_ident #ty_generics> for #ident #ty_generics #where_clause {
-				fn from(value: #new_ident #ty_generics) -> Self {
-					let mut old = #ident::default();
-					#(#assignments_to_old)*
-					old
-				}
-			}
-		}
-	};
-
-	// Generate Default implementation with generics
-	let default_impl = {
-		let mut field_inits = Vec::new();
-		for (name, _, _, _) in &field_infos {
-			field_inits.push(quote! {
-				#name: Default::default()
-			});
-		}
-
-		// Also include padding fields
-		for i in 0..pad_count {
-			let pad_name = format_ident!("_pad{}", i);
-			field_inits.push(quote! {
-				#pad_name: Default::default()
-			});
-		}
-
-		quote! {
-			impl #impl_generics Default for #new_ident #ty_generics #where_clause {
-				fn default() -> Self {
-					#new_ident {
-						#(#field_inits,)*
-					}
-				}
-			}
 		}
 	};
 
@@ -388,9 +279,7 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 		}
 
 		quote! {
-			impl #impl_generics FFIStruct for #new_ident #ty_generics #where_clause {
-				type RustType = #ident #ty_generics;
-
+			impl #impl_generics FFIStruct for #ident #ty_generics #where_clause {
 				fn iter_members(&self) -> std::vec::IntoIter<(&'static str, MemberInfo)> {
 					let mut members = Vec::new();
 					#(
@@ -415,12 +304,7 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 
 	// Combine all generated code
 	let output = quote! {
-		#input
-
-		#new_struct
-
-		#from_impl
-		#default_impl
+		#modified_struct
 
 		#trait_impl
 	};
