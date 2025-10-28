@@ -354,8 +354,8 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 					// Calculate offset using simple arithmetic
 					let offset = field_ptr - base_ptr;
 
-					// Runtime size validation for generic fields
-					if !#is_pad && #is_generic {
+					// Runtime size validation for non-pad fields
+					if !#is_pad {
 						let actual_size = std::mem::size_of_val(&self.#name);
 						if actual_size != #size {
 							panic!(
