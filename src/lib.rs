@@ -116,7 +116,7 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 		let ty = &field.ty;
 
 		// Parse attributes and remove macro-specific ones
-		let mut align_attr: Option<usize> = None;
+		let mut align_attr: usize = get_type_alignment(&ty, &align_of_types);
 		let mut size_attr: Option<usize> = None;
 
 		// Remove #[align] and #[size] attributes from field
@@ -125,7 +125,7 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 				if let Meta::NameValue(nv) = &attr.meta {
 					if let Expr::Lit(expr_lit) = &nv.value {
 						if let Lit::Int(lit) = &expr_lit.lit {
-							align_attr = Some(lit.base10_parse().unwrap());
+							align_attr = lit.base10_parse().unwrap();
 						}
 					}
 				}
@@ -143,9 +143,6 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 				true // Keep other attributes
 			}
 		});
-
-		// Default alignment if not provided
-		let align_attr = align_attr.unwrap_or(1);
 
 		// Calculate size if not provided
 		let size_attr = if size_attr.is_none() {
@@ -175,6 +172,7 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 	let mut field_entries = Vec::new();
 
 	for (name, ty, align, size) in field_infos.iter() {
+
 		// Calculate padding needed for alignment
 		let padding = if offset % align == 0 { 0 } else { align - (offset % align) };
 
@@ -392,7 +390,7 @@ fn calculate_type_size(
 
 			for elem in &tuple.elems {
 				let elem_size = calculate_type_size(elem, size_of_types, align_of_types)?;
-				let elem_align = get_type_alignment(elem, align_of_types)?;
+				let elem_align = get_type_alignment(elem, align_of_types);
 
 				// Align current offset to element's alignment
 				let padding = if total_size % elem_align == 0 {
@@ -424,7 +422,7 @@ fn calculate_type_size(
 }
 
 // Get alignment for type using align_of
-fn get_type_alignment(ty: &Type, align_of_types: &HashMap<String, usize>) -> Result<usize, SynError> {
+fn get_type_alignment(ty: &Type, align_of_types: &HashMap<String, usize>) -> usize {
 	match ty {
 		Type::Path(type_path) => {
 			if let Some(ident) = type_path.path.get_ident() {
@@ -432,33 +430,33 @@ fn get_type_alignment(ty: &Type, align_of_types: &HashMap<String, usize>) -> Res
 
 				// Check if alignment is provided via #[align_of_type]
 				if let Some(align) = align_of_types.get(&type_name) {
-					return Ok(*align);
+					return *align;
 				}
 
 				// Handle basic types
 				match type_name.as_str() {
-					"i8" =>    Ok(align_of::<i8>()),
-					"u8" =>    Ok(align_of::<u8>()),
-					"i16" =>   Ok(align_of::<i16>()),
-					"u16" =>   Ok(align_of::<u16>()),
-					"i32" =>   Ok(align_of::<i32>()),
-					"u32" =>   Ok(align_of::<u32>()),
-					"i64" =>   Ok(align_of::<i64>()),
-					"u64" =>   Ok(align_of::<u64>()),
-					"f32" =>   Ok(align_of::<f32>()),
-					"f64" =>   Ok(align_of::<f64>()),
-					"bool" =>  Ok(align_of::<bool>()),
-					"char" =>  Ok(align_of::<char>()),
-					"isize" => Ok(align_of::<isize>()),
-					"usize" => Ok(align_of::<usize>()),
-					_ => Ok(8), // Default alignment
+					"i8" =>    align_of::<i8>(),
+					"u8" =>    align_of::<u8>(),
+					"i16" =>   align_of::<i16>(),
+					"u16" =>   align_of::<u16>(),
+					"i32" =>   align_of::<i32>(),
+					"u32" =>   align_of::<u32>(),
+					"i64" =>   align_of::<i64>(),
+					"u64" =>   align_of::<u64>(),
+					"f32" =>   align_of::<f32>(),
+					"f64" =>   align_of::<f64>(),
+					"bool" =>  align_of::<bool>(),
+					"char" =>  align_of::<char>(),
+					"isize" => align_of::<isize>(),
+					"usize" => align_of::<usize>(),
+					_ => size_of::<usize>(), // Default alignment
 				}
 			} else {
-				Ok(8) // Default alignment for qualified types
+				size_of::<usize>() // Default alignment for qualified types
 			}
 		},
-		Type::Array(_) => Ok(8), // Default alignment for arrays
-		Type::Tuple(_) => Ok(8), // Default alignment for tuples
-		_ => Ok(8), // Default alignment for other types
+		Type::Array(_) => size_of::<usize>(), // Default alignment for arrays
+		Type::Tuple(_) => size_of::<usize>(), // Default alignment for tuples
+		_ => size_of::<usize>(), // Default alignment for other types
 	}
 }
