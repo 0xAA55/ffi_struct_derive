@@ -63,7 +63,10 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 	let generics = &input.generics;
 	let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
+	// Parse #[size_of_type] and #[align_of_type] attributes on the struct
 	let mut size_of_types = HashMap::new();
+	let mut align_of_types = HashMap::new();
+
 	for attr in &input.attrs {
 		if attr.path().is_ident("size_of_type") {
 			if let Meta::List(list) = &attr.meta {
@@ -81,17 +84,36 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 					}
 				}
 			}
+		} else if attr.path().is_ident("align_of_type") {
+			if let Meta::List(list) = &attr.meta {
+				// Parse comma-separated list of name-value pairs
+				let parsed = list.parse_args_with(Punctuated::<MetaNameValue, Token![,]>::parse_terminated)?;
+
+				for nv in parsed {
+					if let Some(ident) = nv.path.get_ident() {
+						if let Expr::Lit(expr_lit) = &nv.value {
+							if let Lit::Int(lit_int) = &expr_lit.lit {
+								let align = lit_int.base10_parse::<usize>()?;
+								align_of_types.insert(ident.to_string(), align);
+							}
+						}
+					}
+				}
+			}
 		}
 	}
+
+	// Remove macro-specific attributes from struct level
+	input.attrs.retain(|attr| !attr.path().is_ident("size_of_type") && !attr.path().is_ident("align_of_type"));
 
 	// Preserve all non-macro attributes from the original struct, but remove #[derive(Default)]
 	let mut preserved_attrs = Vec::new();
 	for attr in &input.attrs {
-		if !attr.path().is_ident("size_of_type") && !attr.path().is_ident("ffi_struct") {
+		if !attr.path().is_ident("size_of_type") && !attr.path().is_ident("align_of_type") && !attr.path().is_ident("ffi_struct") {
 			if let Meta::List(list) = &attr.meta {
 				if list.path.is_ident("derive") {
 					// Parse the derive list
-					if let Ok(derives) = list.parse_args_with(Punctuated::<Path, Token![,]>::parse_terminated) {
+					if let Ok(derives) = list.parse_args_with(Punctuated::<syn::Path, Token![,]>::parse_terminated) {
 						// Create a new list without Default
 						let mut new_derives: Punctuated<syn::Path, Token![,]> = Punctuated::new();
 						for path in derives {
