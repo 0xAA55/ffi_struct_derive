@@ -238,16 +238,16 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 	// Get visibility of original struct
 	let vis = &input.vis;
 
-	// Generate new struct definition
+	// Generate new struct definition with generics
 	let new_struct = quote! {
 		#(#preserved_attrs)*
 		#[repr(C)]
-		#vis struct #new_ident {
+		#vis struct #new_ident #ty_generics #where_clause {
 			#(#new_fields,)*
 		}
 	};
 
-	// Generate From/Into implementations
+	// Generate From/Into implementations with generics
 	let from_impl = {
 		let mut assignments_to_new = Vec::new();
 		let mut assignments_to_old = Vec::new();
@@ -262,28 +262,28 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 		}
 
 		quote! {
-			impl #ident {
-				pub fn into_ffi(self) -> #new_ident {
+			impl #impl_generics #ident #ty_generics #where_clause {
+				pub fn into_ffi(self) -> #new_ident #ty_generics {
 					self.into()
 				}
 			}
 
-			impl #new_ident {
-				pub fn into_rust(self) -> #ident {
+			impl #impl_generics #new_ident #ty_generics #where_clause {
+				pub fn into_rust(self) -> #ident #ty_generics {
 					self.into()
 				}
 			}
 
-			impl From<#ident> for #new_ident {
-				fn from(value: #ident) -> Self {
+			impl #impl_generics From<#ident #ty_generics> for #new_ident #ty_generics #where_clause {
+				fn from(value: #ident #ty_generics) -> Self {
 					let mut new = #new_ident::default();
 					#(#assignments_to_new)*
 					new
 				}
 			}
 
-			impl From<#new_ident> for #ident {
-				fn from(value: #new_ident) -> Self {
+			impl #impl_generics From<#new_ident #ty_generics> for #ident #ty_generics #where_clause {
+				fn from(value: #new_ident #ty_generics) -> Self {
 					let mut old = #ident::default();
 					#(#assignments_to_old)*
 					old
@@ -292,7 +292,7 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 		}
 	};
 
-	// Generate Default implementation for new struct
+	// Generate Default implementation with generics
 	let default_impl = {
 		let mut field_inits = Vec::new();
 		for (name, _, _, _) in &field_infos {
@@ -310,7 +310,7 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 		}
 
 		quote! {
-			impl Default for #new_ident {
+			impl #impl_generics Default for #new_ident #ty_generics #where_clause {
 				fn default() -> Self {
 					#new_ident {
 						#(#field_inits,)*
@@ -320,7 +320,7 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 		}
 	};
 
-	// Implement FFIStruct trait
+	// Implement FFIStruct trait with generics
 	let trait_impl = {
 		let mut field_computations = Vec::new();
 		for (name, ty, size, _align) in field_entries.iter() {
