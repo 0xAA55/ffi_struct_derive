@@ -151,7 +151,6 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 	for field in fields.iter_mut() {
 		let name = field.ident.as_ref().ok_or_else(|| syn::Error::new(field.span(), "Field must have a name"))?;
 		let ty = &field.ty;
-		let is_generic = is_generic_type(ty);
 
 		// Parse attributes and remove macro-specific ones
 		let mut align_attr: Option<usize> = None;
@@ -198,12 +197,12 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 			size_attr
 		};
 
-		// Generic fields must have size attribute
-		if is_generic && size_attr.is_none() {
-			return Err(syn::Error::new(field.span(), "Generic field must have #[size(Xxx)] attribute"));
+		// If still no size attribute, return error
+		if size_attr.is_none() {
+			return Err(syn::Error::new(field.span(), "Field must have #[size(Xxx)] attribute or be defined in #[size_of_type]"));
 		}
 
-		field_infos.push((name.clone(), ty.clone(), align_attr, size_attr.unwrap(), is_generic));
+		field_infos.push((name.clone(), ty.clone(), align_attr, size_attr.unwrap()));
 	}
 
 	// Generate new struct fields with padding
@@ -212,7 +211,7 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 	let mut offset: usize = 0;
 	let mut field_entries = Vec::new();
 
-	for (name, ty, align, size, is_generic) in field_infos.iter() {
+	for (name, ty, align, size) in field_infos.iter() {
 		// Calculate padding needed for alignment
 		let padding = if offset % align == 0 { 0 } else { align - (offset % align) };
 
@@ -222,7 +221,7 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 			new_fields.push(quote! {
 				pub #pad_name: [u8; #padding]
 			});
-			field_entries.push((pad_name.clone(), None, padding, *align, false));
+			field_entries.push((pad_name.clone(), None, padding, *align));
 			pad_count += 1;
 			offset += padding;
 		}
@@ -232,7 +231,7 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 			#name: #ty
 		});
 
-		field_entries.push((name.clone(), Some(ty.clone()), *size, *align, *is_generic));
+		field_entries.push((name.clone(), Some(ty.clone()), *size, *align));
 		offset += size;
 	}
 
@@ -253,7 +252,7 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 		let mut assignments_to_new = Vec::new();
 		let mut assignments_to_old = Vec::new();
 
-		for (name, _, _, _, _) in &field_infos {
+		for (name, _, _, _) in &field_infos {
 			assignments_to_new.push(quote! {
 				new.#name = value.#name;
 			});
@@ -296,7 +295,7 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 	// Generate Default implementation for new struct
 	let default_impl = {
 		let mut field_inits = Vec::new();
-		for (name, _, _, _, _) in &field_infos {
+		for (name, _, _, _) in &field_infos {
 			field_inits.push(quote! {
 				#name: Default::default()
 			});
@@ -324,7 +323,7 @@ fn impl_ffi_struct(mut input: DeriveInput) -> Result<TokenStream2, SynError> {
 	// Implement FFIStruct trait
 	let trait_impl = {
 		let mut field_computations = Vec::new();
-		for (name, ty, size, _align, is_generic) in field_entries.iter() {
+		for (name, ty, size, _align) in field_entries.iter() {
 			let is_pad = name.to_string().starts_with("_pad");
 			let field_name = name.to_string();
 
