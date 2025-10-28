@@ -25,7 +25,6 @@ use syn::{
 	Lit,
 	Meta,
 	MetaNameValue,
-	Path,
 	Token,
 	Type,
 	parse_macro_input,
